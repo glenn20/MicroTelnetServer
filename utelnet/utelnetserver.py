@@ -60,6 +60,34 @@ class TelnetWrapper(IOBase):
     def close(self):
         self.socket.close()
 
+def read_until(s, match, timeout=10):
+    import time
+    n = len(match)
+    i = 0
+    start = time.time()
+    while timeout is None or time.time() - start < timeout:
+        b = s.recv(1)
+        if len(b) != 1:
+            continue
+        # print(f":{b[0]} ():")
+        if b[0] == match[i]:
+            i += 1
+            if i == n:
+                return True
+        else:
+            i = 0
+
+    return False
+
+def server_handshake(cl):
+    cl.sendall(b"Login as: ")
+    read_until(cl, b"\n")
+    cl.sendall(b"Password: ")
+    read_until(cl, b"\n")
+    cl.sendall(b'Type "help()" for more information.\r\n')
+    cl.sendall(b'\r\n\r\n')
+    return True
+
 # Attach new clients to dupterm and
 # send telnet control characters to disable line mode
 # and stop local echoing
@@ -73,6 +101,18 @@ def accept_telnet_connect(telnet_server):
 
     last_client_socket, remote_addr = telnet_server.accept()
     print("Telnet connection from:", remote_addr)
+
+    if not server_handshake(last_client_socket):
+        last_client_socket.sendall(b"Exit\r\n\r\n")
+        return False
+
+    prev = uos.dupterm(None)
+    uos.dupterm(prev)
+    if prev:
+        print("\nConcurrent telnet connection from", remote_addr, "rejected")
+        last_client_socket.close()
+        return False
+
     last_client_socket.setblocking(False)
     # notify REPL on socket incoming data (ESP32/ESP8266-only)
     if hasattr(uos, "dupterm_notify"):
